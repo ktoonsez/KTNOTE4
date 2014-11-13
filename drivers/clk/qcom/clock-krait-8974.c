@@ -22,6 +22,8 @@
 #include <linux/regulator/rpm-smd-regulator.h>
 #include <linux/of.h>
 #include <linux/cpumask.h>
+#include <linux/cpufreq.h>
+#include <linux/cpufreq_kt.h>
 #include <linux/clk/msm-clk-provider.h>
 #include <linux/clk/msm-clk.h>
 #include <linux/clk/msm-clock-generic.h>
@@ -31,6 +33,9 @@
 #include <asm/cputype.h>
 
 #include "clock.h"
+
+unsigned int orig_drv[FREQ_STEPS];
+static bool capture_orig = false;
 
 /* Clock inputs coming into Krait subsystem */
 DEFINE_FIXED_DIV_CLK(hfpll_src_clk, 1, NULL);
@@ -45,7 +50,7 @@ static int hfpll_uv[] = {
 static DEFINE_VDD_REGULATORS(vdd_hfpll, ARRAY_SIZE(hfpll_uv)/2, 2,
 				hfpll_uv, NULL);
 
-static unsigned long hfpll_fmax[] = { 0, 998400000, 1996800000, 2900000000UL };
+static unsigned long hfpll_fmax[] = { 0, 998400000, 1996800000, 3100000000UL };
 
 static struct hfpll_data hdata = {
 	.mode_offset = 0x0,
@@ -59,7 +64,7 @@ static struct hfpll_data hdata = {
 	.user_val = 0x8,
 	.low_vco_max_rate = 1248000000,
 	.min_rate = 537600000UL,
-	.max_rate = 2900000000UL,
+	.max_rate = 3100000000UL,
 };
 
 static struct hfpll_clk hfpll0_clk = {
@@ -700,6 +705,104 @@ static void krait_update_uv(int *uv, int num, int boost_uv)
 		for (i = 0; i < num; i++)
 			uv[i] += boost_uv;
 	}
+}
+
+void get_stock_table(void)
+{
+	if (!capture_orig)
+	{
+		int i;
+		int num_levels = cpu_clk[0]->vdd_class->num_levels;
+		for (i = num_levels-1; i > 0; i--)
+			orig_drv[i] = cpu_clk[0]->vdd_class->vdd_uv[i];
+		capture_orig = true;
+	}
+}
+
+ssize_t show_UV_mV_table(struct cpufreq_policy *policy, char *buf)
+{
+	int i, freq, len = 0, mod = 0;
+	/* use only master core 0 */
+	int num_levels = cpu_clk[0]->vdd_class->num_levels;
+	if (isenable_oc == 0)
+		mod = FREQ_TABLE_SIZE_OFFSET;
+
+	/* sanity checks */
+	if (num_levels < 0)
+		return -EINVAL;
+
+	if (!buf)
+		return -EINVAL;
+
+	/* format UV_mv table */
+	for (i = num_levels-1-mod; i > 0; i--)
+	{
+		freq = cpu_clk[0]->fmax[i] / 1000;
+		len += sprintf(buf + len, "%dmhz: %u mV\n", freq / 1000,
+			       cpu_clk[0]->vdd_class->vdd_uv[i] / 1000);
+	}
+	return len;
+}
+
+ssize_t show_UV_mV_table_stock(struct cpufreq_policy *policy, char *buf)
+{
+	int i, freq, len = 0, mod = 0;
+	/* use only master core 0 */
+	int num_levels = cpu_clk[0]->vdd_class->num_levels;
+	if (isenable_oc == 0)
+		mod = FREQ_TABLE_SIZE_OFFSET;
+
+	get_stock_table();
+	
+	/* sanity checks */
+	if (num_levels < 0)
+		return -EINVAL;
+
+	if (!buf)
+		return -EINVAL;
+
+	/* format UV_mv table */
+	for (i = num_levels-1-mod; i > 0; i--)
+	{
+		freq = cpu_clk[0]->fmax[i] / 1000;
+		len += sprintf(buf + len, "%dmhz: %u mV\n", freq / 1000,
+			       orig_drv[i] / 1000);
+	}
+	return len;
+}
+
+ssize_t store_UV_mV_table(struct cpufreq_policy *policy, char *buf,
+				size_t count)
+{
+	int i, j, offset, mod = 0;
+	unsigned int val;
+	int num_levels = cpu_clk[0]->vdd_class->num_levels;
+	if (isenable_oc == 0)
+		mod = FREQ_TABLE_SIZE_OFFSET;
+
+	get_stock_table();
+	
+	if (num_levels < 0)
+		return -1;
+
+	for (i = num_levels-1-mod; i > 0; i--)
+	{
+		if (sscanf(buf, " %d%n", &val, &offset) == 1)
+		{
+			for (j = 0; j < NR_CPUS; j++)
+			{
+				if (val > CPU_VDD_MAX)
+					val = CPU_VDD_MAX;
+				if (val < CPU_VDD_MIN)
+					val = CPU_VDD_MIN;
+				cpu_clk[j]->vdd_class->vdd_uv[i] = val * 1000;
+			}
+		}
+		else
+			break;
+		buf += offset;
+	}
+	return count;
 }
 
 static char table_name[] = "qcom,speedXX-pvsXX-bin-vXX";
