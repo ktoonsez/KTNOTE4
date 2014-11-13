@@ -17,6 +17,18 @@
 #include <linux/notifier.h>
 #include <linux/sysfs.h>
 
+#define CPU_VDD_MIN	 	500
+#define CPU_VDD_MAX		1400
+#define FREQ_STEPS		52
+#define FREQ_TABLE_SIZE_OFFSET	6
+#define CPUFREQ_NAME_LEN 	17
+#define CPUINFO_MAX_FREQ_LIMIT	3072000
+
+extern int GLOBALKT_MIN_FREQ_LIMIT;
+extern int GLOBALKT_MAX_FREQ_LIMIT;
+
+extern unsigned int kthermal_limit;
+
 /*********************************************************************
  *                        CPUFREQ INTERFACE                          *
  *********************************************************************/
@@ -28,7 +40,6 @@
  */
 
 #define CPUFREQ_ETERNAL			(-1)
-#define CPUFREQ_NAME_LEN		16
 /* Print length for names. Extra 1 space for accomodating '\n' in prints */
 #define CPUFREQ_NAME_PLEN		(CPUFREQ_NAME_LEN + 1)
 /* Minimum frequency cutoff to notify the userspace about cpu utilization
