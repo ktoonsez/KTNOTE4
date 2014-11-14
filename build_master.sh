@@ -52,7 +52,7 @@ rm arch/arm/boot/dts/*.reverse.dts
 
 echo "Make the kernel"
 #make VARIANT_DEFCONFIG=jf_$CARRIER"_defconfig" SELINUX_DEFCONFIG=jfselinux_defconfig SELINUX_LOG_DEFCONFIG=jfselinux_log_defconfig KT_jf_defconfig
-make apq8084_sec_defconfig VARIANT_DEFCONFIG=apq8084_sec_trlte_eur_defconfig SELINUX_DEFCONFIG=selinux_defconfig
+make apq8084_sec_defconfig VARIANT_DEFCONFIG=apq8084_sec_trlte_ktoonsez_defconfig SELINUX_DEFCONFIG=selinux_defconfig
 
 echo "Modding .config file - "$KTVER
 sed -i 's,CONFIG_LOCALVERSION="-KT-NOTE4",CONFIG_LOCALVERSION="'$KTVER'",' .config
