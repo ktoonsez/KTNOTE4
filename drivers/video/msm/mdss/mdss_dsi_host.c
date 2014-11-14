@@ -350,8 +350,8 @@ void mdss_dsi_host_init(struct mdss_panel_data *pdata)
 
 	if (mdss_dsi_broadcast_mode_enabled())
 		if (pdata->panel_info.pdest == DISPLAY_1) {
-			pr_info("%s: Broadcast mode enabled.\n",
-				 __func__);
+			//pr_info("%s: Broadcast mode enabled.\n",
+			//	 __func__);
 			left_ctrl_pdata = ctrl_pdata;
 		}
 
