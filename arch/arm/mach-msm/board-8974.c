@@ -68,7 +68,7 @@ void __init msm8974_add_drivers(void)
 	msm_spm_device_init();
 	krait_power_init();
 	tsens_tm_init_driver();
-	msm_thermal_device_init();
+	//msm_thermal_device_init();
 }
 
 static struct of_dev_auxdata msm_hsic_host_adata[] = {
