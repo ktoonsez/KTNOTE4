@@ -180,7 +180,10 @@ static int boost_mig_sync_thread(void *data)
 
 		cancel_delayed_work_sync(&s->boost_rem);
 
-		s->boost_min = req_freq;
+		if (req_freq >= dest_policy.min)
+			s->boost_min = req_freq;
+		else
+			s->boost_min = dest_policy.min;
 
 		/* Force policy re-evaluation to trigger adjust notifier. */
 		get_online_cpus();
