@@ -116,7 +116,10 @@ int cpufreq_frequency_table_target(struct cpufreq_policy *policy,
 		.frequency = 0,
 	};
 	unsigned int i;
-
+	
+	if (target_freq < policy->min)
+		target_freq = policy->min;
+	
 	pr_debug("request for target %u kHz (relation: %u) for cpu %u\n",
 					target_freq, relation, policy->cpu);
 

@@ -29,6 +29,16 @@
 #include <linux/syscore_ops.h>
 #include <linux/tick.h>
 #include <trace/events/power.h>
+#include <linux/module.h>
+#include <linux/kthread.h>
+#include <linux/workqueue.h>
+#include <linux/completion.h>
+#include <linux/err.h>
+#include <linux/slab.h>
+#include <linux/of.h>
+#include <linux/sysfs.h>
+#include <linux/types.h>
+#include <linux/platform_device.h>
 
 extern ssize_t show_UV_mV_table(struct cpufreq_policy *policy, char *buf);
 extern ssize_t show_UV_mV_table_stock(struct cpufreq_policy *policy, char *buf);
@@ -65,11 +75,13 @@ static bool Lcharging_mhz_active_block_min;
 static bool Lcharging_mhz_active_block_max;
 bool call_in_progress=false;
 
-struct work_struct set_cpu_min_max_work;
-static unsigned int work_speed_min;
-static unsigned int work_speed_max;
-static unsigned int work_speed_core_start;
-static struct workqueue_struct *dbs_wq;
+static int work_speed_min;
+static int work_speed_max;
+static int work_speed_core_start;
+static bool work_speed_inuse;
+struct delayed_work set_cpu_min_max_work;
+//static struct workqueue_struct *dbs_wq;
+static DEFINE_MUTEX(core_control_mutex);
 
 static unsigned int Lenable_auto_hotplug = 0;
 extern void apenable_auto_hotplug(bool state);
@@ -497,21 +509,33 @@ static ssize_t store_##file_name					\
 	return ret ? ret : count;					\
 }
 
-static void __cpuinit set_cpu_min_max_work_fn(struct work_struct *work)
+static void __ref set_cpu_min_max_work_fn(struct work_struct *work)
 {
+	mutex_lock(&core_control_mutex);
 	if (work_speed_min > 0 || work_speed_max > 0)
 	{
 		struct cpufreq_policy new_policy;
-		int cpu, ret;
+		int cpu = 0;
+		int ret = 0;
+		pr_alert("SET EXTRA CORES INIT-1\n");
 		for (cpu = work_speed_core_start; cpu < CPUS_AVAILABLE; cpu++)
 		{
-			if (!cpu_online(cpu)) cpu_up(cpu);
-			usleep(50);
+			pr_alert("SET EXTRA CORES INIT-2\n");
+			if (likely(!cpu_online(cpu)))
+			{
+				ret = cpu_up(cpu);
+				if (ret)
+					pr_err("SET EXTRA CORES INIT-6 - Error %d online core %d\n", ret, cpu);
+			}
+			//usleep(50);
+			pr_alert("SET EXTRA CORES INIT-3\n");
 			if (cpu_online(cpu))
 			{
+				pr_alert("SET EXTRA CORES INIT-4\n");
 				struct cpufreq_policy *policyorig = cpufreq_cpu_get(cpu);
 				if (policyorig)
 				{
+					pr_alert("SET EXTRA CORES INIT-5\n");
 					ret = cpufreq_get_policy(&new_policy, cpu);
 					if (work_speed_min)
 					{
@@ -525,17 +549,19 @@ static void __cpuinit set_cpu_min_max_work_fn(struct work_struct *work)
 						policyorig->user_policy.max = new_policy.max;
 						new_policy.user_policy.max = new_policy.max;
 					}
-					//pr_alert("SET EXTRA CORES 1 - %d - %d - %d - %d - %d - %d - %d", cpu, policyorig->cpu, new_policy.min, new_policy.max, policyorig->min, policyorig->max, policyorig->user_policy.max);
+					pr_alert("SET EXTRA CORES 1 - %d - %d - %d - %d - %d - %d - %d\n", cpu, policyorig->cpu, new_policy.min, new_policy.max, policyorig->min, policyorig->max, policyorig->user_policy.max);
 					cpufreq_set_policy(policyorig, &new_policy);
 					if (work_speed_min)
 						policyorig->user_policy.min = policyorig->min;
 					if (work_speed_max)
 						policyorig->user_policy.max = policyorig->max;
-					//pr_alert("SET EXTRA CORES 2 - %d - %d - %d - %d - %d - %d - %d", cpu, policyorig->cpu, new_policy.min, new_policy.max, policyorig->min, policyorig->max, policyorig->user_policy.max);
+					pr_alert("SET EXTRA CORES 2 - %d - %d - %d - %d - %d - %d - %d\n", cpu, policyorig->cpu, new_policy.min, new_policy.max, policyorig->min, policyorig->max, policyorig->user_policy.max);
 				}
 			}				
 		}
 	}
+	work_speed_inuse = false;
+	mutex_unlock(&core_control_mutex);
 }
 
 static void set_cpu_min_max(unsigned int min, unsigned int max, unsigned int core_start)
@@ -543,7 +569,14 @@ static void set_cpu_min_max(unsigned int min, unsigned int max, unsigned int cor
 	work_speed_min = min;
 	work_speed_max = max;
 	work_speed_core_start = core_start;
-	queue_work_on(0, dbs_wq, &set_cpu_min_max_work);
+	pr_alert("SET EXTRA CORES CALLED - %d\n", work_speed_inuse);
+	if (!work_speed_inuse && isBooted)
+	{
+		mutex_lock(&core_control_mutex);
+		work_speed_inuse = true;
+		mutex_unlock(&core_control_mutex);
+		schedule_delayed_work_on(0, &set_cpu_min_max_work, 0);
+	}
 }
 
 void send_cable_state(unsigned int state)
@@ -601,8 +634,10 @@ static ssize_t __ref store_scaling_min_freq(struct cpufreq_policy *policy, const
 		new_policy.min = value;
 		policy->user_policy.min = new_policy.min;
 		new_policy.user_policy.min = new_policy.min;
+		pr_alert("SET SCALING MIN1 - %d - %d - %d - %d\n", value, new_policy.min, new_policy.user_policy.min, policy->cpu);
 		ret = cpufreq_set_policy(policy, &new_policy);
 		policy->user_policy.min = policy->min;
+		pr_alert("SET SCALING MIN2 - %d - %d - %d - %d\n", value, new_policy.min, new_policy.user_policy.min, policy->cpu);
 
 		//Set extra CPU cores to same speed
 		//if (policy->cpu == 0)
@@ -639,10 +674,10 @@ static ssize_t __ref store_scaling_max_freq(struct cpufreq_policy *policy, const
 		new_policy.max = value;
 		policy->user_policy.max = new_policy.max;
 		new_policy.user_policy.max = new_policy.max;
-		pr_alert("SET SCALING MAX - %d - %d - %d", value, new_policy.max, new_policy.user_policy.max);
+		pr_alert("SET SCALING MAX1 - %d - %d - %d - %d\n", value, new_policy.max, new_policy.user_policy.max, policy->cpu);
 		ret = cpufreq_set_policy(policy, &new_policy);
 		policy->user_policy.max = policy->max;
-		pr_alert("SET SCALING MAX - %d - %d - %d", value, new_policy.max, new_policy.user_policy.max);
+		pr_alert("SET SCALING MAX2 - %d - %d - %d - %d\n", value, new_policy.max, new_policy.user_policy.max, policy->cpu);
 
 		//Set extra CPU cores to same speed
 		//if (policy->cpu == 0)
@@ -2640,8 +2675,8 @@ int cpufreq_unregister_driver(struct cpufreq_driver *driver)
 	write_unlock_irqrestore(&cpufreq_driver_lock, flags);
 	up_write(&cpufreq_rwsem);
 
-	cancel_work_sync(&set_cpu_min_max_work);
-	destroy_workqueue(dbs_wq);
+	cancel_delayed_work_sync(&set_cpu_min_max_work);
+	//destroy_workqueue(dbs_wq);
 
 	return 0;
 }
@@ -2656,12 +2691,13 @@ static int __init cpufreq_core_init(void)
 	BUG_ON(!cpufreq_global_kobject);
 	register_syscore_ops(&cpufreq_syscore_ops);
 	
-	dbs_wq = alloc_workqueue("cpufreq_coreminmax_wq", WQ_HIGHPRI, 0);
-	if (!dbs_wq) {
-		printk(KERN_ERR "Failed to create cpufreq_coreminmax_wq workqueue\n");
-		return -EFAULT;
-	}
-	INIT_WORK(&set_cpu_min_max_work, set_cpu_min_max_work_fn);
+	//dbs_wq = alloc_workqueue("cpufreq_minmax_wq", WQ_HIGHPRI, 0);
+	//if (!dbs_wq) {
+	//	printk(KERN_ERR "Failed to create cpufreq_minmax_wq\n");
+	//	return -EFAULT;
+	//}
+	INIT_DELAYED_WORK(&set_cpu_min_max_work, set_cpu_min_max_work_fn);
+	//schedule_delayed_work_on(0, &set_cpu_min_max_work, msecs_to_jiffies(50));
 	
 	return 0;
 }

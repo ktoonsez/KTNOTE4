@@ -55,7 +55,7 @@ struct cpufreq_limit_handle *cpufreq_limit_get(unsigned long min_freq,
 	pr_debug("%s: %s,%lu,%lu\n", __func__, handle->label, handle->min,
 			handle->max);
 
-	handle->min = min_freq;
+	handle->min = 0;
 	handle->max = 0;
 
 	if (strlen(label) < sizeof(handle->label))
