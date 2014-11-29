@@ -26,6 +26,8 @@
 #include "kgsl_trace.h"
 #include "kgsl_sharedmem.h"
 
+#include <linux/cpufreq_kt.h>
+
 #define KGSL_PWRFLAGS_POWER_ON 0
 #define KGSL_PWRFLAGS_CLK_ON   1
 #define KGSL_PWRFLAGS_AXI_ON   2
@@ -33,6 +35,13 @@
 
 #define UPDATE_BUSY_VAL		1000000
 #define UPDATE_BUSY		50
+
+unsigned int cur_gpu_step;
+unsigned int cur_max_pwrlevel;
+int boost_level = -1;
+struct kgsl_device *Gbldevice;
+unsigned long internal_max = 600000000;
+unsigned long orig_max = 0;
 
 /*
  * Expected delay for post-interrupt processing on A3xx.
@@ -157,6 +166,10 @@ void kgsl_pwrctrl_pwrlevel_change(struct kgsl_device *device,
 	/* Adjust the power level to the current constraints */
 	new_level = _adjust_pwrlevel(pwr, new_level);
 
+	//Assign new_level to boost level if it is not -1 and less than new level
+	if (boost_level != -1 && boost_level < new_level)
+		new_level = boost_level;
+
 	if (new_level == pwr->active_pwrlevel)
 		return;
 
@@ -171,6 +184,7 @@ void kgsl_pwrctrl_pwrlevel_change(struct kgsl_device *device,
 	pwr->active_pwrlevel = new_level;
 	pwr->bus_mod = 0;
 	pwrlevel = &pwr->pwrlevels[pwr->active_pwrlevel];
+	cur_gpu_step = new_level;
 
 	kgsl_pwrctrl_buslevel_update(device, true);
 
@@ -260,6 +274,7 @@ static ssize_t kgsl_pwrctrl_max_pwrlevel_store(struct device *dev,
 		level = pwr->min_pwrlevel;
 
 	pwr->max_pwrlevel = level;
+	cur_max_pwrlevel = level;
 
 
 	max_level = max_t(unsigned int, pwr->thermal_pwrlevel,
@@ -370,6 +385,63 @@ static int _get_nearest_pwrlevel(struct kgsl_pwrctrl *pwr, unsigned int clock)
 	return -ERANGE;
 }
 
+static int _get_exact_pwrlevel(struct kgsl_pwrctrl *pwr, unsigned int clock)
+{
+	int i;
+
+	for (i = pwr->num_pwrlevels - 1; i >= 0; i--) {
+		//pr_alert("BOOST GPUs: %d - %d\n", pwr->pwrlevels[i].gpu_freq, clock);
+		if (pwr->pwrlevels[i].gpu_freq == clock || (i == 0 && clock >= pwr->pwrlevels[i].gpu_freq))
+		{
+			//pr_alert("BOOST GPUs CHOOSE: %d %d\n", pwr->pwrlevels[i].gpu_freq, i);
+			return i;
+		}
+	}
+
+	return -ERANGE;
+}
+
+void boost_the_gpu(unsigned int freq, bool getfreq)
+{
+	struct kgsl_pwrctrl *pwr;
+	if (getfreq)
+	{
+		//pr_alert("BOOST GPU TOUCH: %d\n", freq);
+		freq = freq * 1000;
+		pwr = &Gbldevice->pwrctrl;
+		boost_level = _get_exact_pwrlevel(pwr, freq);
+	}
+	else
+		boost_level = -1;
+}
+
+void set_max_gpuclk_so(unsigned long val)
+{
+	struct kgsl_pwrctrl *pwr;
+	int level;
+
+	pwr = &Gbldevice->pwrctrl;
+	
+	if (val == 0)
+		val = orig_max;
+	else if (val != 0 && orig_max == 0)
+		orig_max = pwr->pwrlevels[pwr->thermal_pwrlevel].gpu_freq;
+		
+	mutex_lock(&Gbldevice->mutex);
+	level = _get_nearest_pwrlevel(pwr, val);
+	if (level < 0)
+		goto done;
+
+	pwr->thermal_pwrlevel = level;
+
+	if (pwr->thermal_pwrlevel > pwr->active_pwrlevel)
+		kgsl_pwrctrl_pwrlevel_change(Gbldevice, pwr->thermal_pwrlevel);
+
+done:
+	mutex_unlock(&Gbldevice->mutex);
+	
+}
+
 static ssize_t kgsl_pwrctrl_max_gpuclk_store(struct device *dev,
 					 struct device_attribute *attr,
 					 const char *buf, size_t count)
@@ -393,6 +465,8 @@ static ssize_t kgsl_pwrctrl_max_gpuclk_store(struct device *dev,
 	if (level < 0)
 		goto done;
 
+	internal_max = val;
+
 	pwr->thermal_pwrlevel = (unsigned int) level;
 
 	/*
@@ -402,7 +476,8 @@ static ssize_t kgsl_pwrctrl_max_gpuclk_store(struct device *dev,
 
 	if (pwr->thermal_pwrlevel > pwr->active_pwrlevel)
 		kgsl_pwrctrl_pwrlevel_change(device, pwr->thermal_pwrlevel);
-
+	orig_max = val;
+	
 done:
 	kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 	return count;
@@ -1066,6 +1141,7 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	struct kgsl_device_platform_data *pdata = pdev->dev.platform_data;
 
+	Gbldevice = device;
 	/*acquire clocks */
 	for (i = 0; i < KGSL_MAX_CLKS; i++) {
 		if (pdata->clk_map & clks[i].map) {
@@ -1095,7 +1171,7 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 	pwr->thermal_pwrlevel = 0;
 
 	pwr->active_pwrlevel = pdata->init_level;
-	pwr->default_pwrlevel = pdata->init_level;
+	pwr->default_pwrlevel = pwr->min_pwrlevel; //pdata->init_level;
 	pwr->init_pwrlevel = pdata->init_level;
 	pwr->wakeup_maxpwrlevel = 0;
 	for (i = 0; i < pdata->num_levels; i++) {
