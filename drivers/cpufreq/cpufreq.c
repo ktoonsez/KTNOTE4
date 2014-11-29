@@ -77,6 +77,8 @@ bool call_in_progress=false;
 
 static int work_speed_min;
 static int work_speed_max;
+static int work_speed_min2[10];
+static int work_speed_max2[10];
 static int work_speed_core_start;
 static bool work_speed_inuse;
 struct delayed_work set_cpu_min_max_work;
@@ -566,11 +568,17 @@ static void __ref set_cpu_min_max_work_fn(struct work_struct *work)
 
 static void set_cpu_min_max(unsigned int min, unsigned int max, unsigned int core_start)
 {
+	int cpu = 0;
 	work_speed_min = min;
 	work_speed_max = max;
+	for (cpu = core_start; cpu < CPUS_AVAILABLE; cpu++)
+	{
+		work_speed_min2[cpu] = min;
+		work_speed_max2[cpu] = max;
+	}	
 	work_speed_core_start = core_start;
 	pr_alert("SET EXTRA CORES CALLED - %d\n", work_speed_inuse);
-	if (!work_speed_inuse && isBooted)
+	if (!work_speed_inuse && isBooted && !isBooted)
 	{
 		mutex_lock(&core_control_mutex);
 		work_speed_inuse = true;
@@ -593,7 +601,7 @@ void send_cable_state(unsigned int state)
 		if (min > 0 || max > 0)
 		{
 			Lcharging_mhz_active = true;
-			//set_cpu_min_max(min, max, 0);
+			set_cpu_min_max(min, max, 0);
 		}
 	}
 	else if (Lcharging_mhz_active)
@@ -608,8 +616,8 @@ void send_cable_state(unsigned int state)
 		if (!Lcharging_mhz_active_block_min && !Lcharging_mhz_active_block_max)
 			Lcharging_mhz_active = false;
 		pr_alert("CHARGING MHZ OFF %u-%u-%u-%u\n", Lcharging_min_mhz, Lcharging_max_mhz, min, max);
-		//if (min > 0 || max > 0)
-		//	set_cpu_min_max(min, max, 0);
+		if (min > 0 || max > 0)
+			set_cpu_min_max(min, max, 0);
 	}
 }
 
@@ -640,8 +648,8 @@ static ssize_t __ref store_scaling_min_freq(struct cpufreq_policy *policy, const
 		pr_alert("SET SCALING MIN2 - %d - %d - %d - %d\n", value, new_policy.min, new_policy.user_policy.min, policy->cpu);
 
 		//Set extra CPU cores to same speed
-		//if (policy->cpu == 0)
-		//	set_cpu_min_max(value, 0, 1);
+		if (policy->cpu == 0)
+			set_cpu_min_max(value, 0, 1);
 
 	Lbluetooth_scaling_mhz_orig = value;
 	Lmusic_play_scaling_mhz_orig = value;
@@ -680,8 +688,8 @@ static ssize_t __ref store_scaling_max_freq(struct cpufreq_policy *policy, const
 		pr_alert("SET SCALING MAX2 - %d - %d - %d - %d\n", value, new_policy.max, new_policy.user_policy.max, policy->cpu);
 
 		//Set extra CPU cores to same speed
-		//if (policy->cpu == 0)
-		//	set_cpu_min_max(0, value, 1);
+		if (policy->cpu == 0)
+			set_cpu_min_max(0, value, 1);
 
 		Lscreen_off_scaling_mhz_orig = value;
 		Lcharging_max_mhz_orig = value;
@@ -879,6 +887,29 @@ static ssize_t show_scaling_available_governors(struct cpufreq_policy *policy,
 out:
 	i += sprintf(&buf[i], "\n");
 	return i;
+}
+
+unsigned int set_battery_max_level(unsigned int value)
+{
+	struct cpufreq_policy *policy = NULL;
+	policy = cpufreq_cpu_get(0);
+	if ((Lonoff == 1  && policy->max != value)|| (Lonoff == 0 && value < Lscreen_off_scaling_mhz))
+	{
+		if (vfreq_lock == 1)
+		{
+			vfreq_lock = 0;
+			vfreq_lock_tempOFF = true;
+		}
+		if (!Lcharging_mhz_active)
+		{
+			set_cpu_min_max(0, value, 0);
+		}
+		pr_alert("SET_BATTERY_MAX_LEVEL: %u\n", value);
+	}
+	if (Lscreen_off_scaling_mhz_orig != 0)
+		return Lscreen_off_scaling_mhz_orig;
+	else
+		return policy->user_policy.max;
 }
 
 ssize_t cpufreq_show_cpus(const struct cpumask *mask, char *buf)
@@ -2393,6 +2424,16 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	}
 
 	//Do KT checker
+	if (work_speed_min2[new_policy->cpu] > 0 && new_policy->cpu > 0)
+	{
+		new_policy->min = work_speed_min2[new_policy->cpu];
+		work_speed_min2[new_policy->cpu] = 0;
+	}	
+	if (work_speed_max2[new_policy->cpu] > 0 && new_policy->cpu > 0)
+	{
+		new_policy->max = work_speed_max2[new_policy->cpu];
+		work_speed_max2[new_policy->cpu] = 0;
+	}	
 	if (policy->cpuinfo.min_freq != GLOBALKT_MIN_FREQ_LIMIT || policy->cpuinfo.max_freq != GLOBALKT_MAX_FREQ_LIMIT)
 	{
 		policy->cpuinfo.min_freq = GLOBALKT_MIN_FREQ_LIMIT;
@@ -2408,7 +2449,6 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 		new_policy->user_policy.min = GLOBALKT_MIN_FREQ_LIMIT;
 		new_policy->user_policy.max = GLOBALKT_MAX_FREQ_LIMIT;
 	}
-
 
 	/* notification of the new policy */
 	blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
@@ -2530,6 +2570,15 @@ no_policy:
 	return ret;
 }
 EXPORT_SYMBOL(cpufreq_update_policy);
+
+void set_screen_on_off_mhz(bool onoff)
+{
+	Lonoff = onoff;
+	//if (Lonoff == 1)
+	//	cpufreq_gov_resume();
+	//else
+	//	cpufreq_gov_suspend();
+}
 
 static int cpufreq_cpu_callback(struct notifier_block *nfb,
 					unsigned long action, void *hcpu)
