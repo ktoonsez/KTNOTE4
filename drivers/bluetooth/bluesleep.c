@@ -54,7 +54,7 @@
 #include <linux/platform_data/msm_serial_hs.h>
 
 #include "hci_uart.h"
-
+#include <linux/cpufreq_kt.h>
 
 #define BT_SLEEP_DBG
 #ifndef BT_SLEEP_DBG
@@ -95,6 +95,7 @@ struct bluesleep_info {
 /* work function */
 static void bluesleep_sleep_work(struct work_struct *work);
 static void bluesleep_uart_awake_work(struct work_struct *work);
+static bool bt_conn_state = false;
 
 /* work queue */
 DECLARE_DELAYED_WORK(sleep_workqueue, bluesleep_sleep_work);
@@ -196,6 +197,13 @@ static void hsuart_power(int on)
 	}
 
 	if (on) {
+		if (!bt_conn_state)
+		{
+			set_bluetooth_state(1);
+			set_bluetooth_state_kt(true);
+			bt_conn_state = true;
+			pr_alert("KT BLUETOOTH IN USE");
+		}
 		if(test_bit(BT_TXDATA, &flags)) {
 			BT_DBG("hsuart_power on");
 			msm_hs_request_clock_on(bsi->uport);
@@ -213,6 +221,13 @@ static void hsuart_power(int on)
 			msm_hs_set_mctrl(bsi->uport, TIOCM_RTS);
 		}
 	} else {
+		if (bt_conn_state)
+		{
+			set_bluetooth_state(0);
+			set_bluetooth_state_kt(false);
+			bt_conn_state = false;
+			pr_alert("KT BLUETOOTH NOT IN USE");
+		}
 		BT_DBG("hsuart_power off");
 		msm_hs_set_mctrl(bsi->uport, 0);
 		msm_hs_request_clock_off(bsi->uport);

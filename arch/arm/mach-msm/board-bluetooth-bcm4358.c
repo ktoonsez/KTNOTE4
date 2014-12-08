@@ -40,6 +40,7 @@
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
+#include <linux/cpufreq_kt.h>
 
 #define BT_UART_CFG
 #define BT_LPM_ENABLE
@@ -215,6 +216,7 @@ static int bcm4358_bt_rfkill_set_power(void *data, bool blocked)
         }
 #endif
         pr_err("[BT] Bluetooth Power Off.\n");
+	set_bluetooth_state(0);
 
         gpio_direction_output(GPIO_BT_EN, 0);
         gpio_set_value(get_gpio_hwrev(BT_WAKE), 0);
