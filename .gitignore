@@ -83,7 +83,9 @@ kernel/hz.bc
 Package/*
 
 firmware/epen/W9012_tr.bin.gen.S
+firmware/epen/W9012_tr_239.bin.gen.S
 firmware/tsp_stm/stm_tr.fw.gen.S
+firmware/tsp_stm/stm_tr.fw
 firmware/tsp_synaptics/*.S
 firmware/tsp_synaptics/*.o
 firmware/tsp_synaptics/*.fw
@@ -104,6 +106,7 @@ firmware/*.fw
 arch/arm/include/generated*
 
 arch/arm/boot/compressed/lib1funcs.S
+arch/arm/boot/compressed/hyp-stub.S
 firmware/tsp_melfas/CORE.fw
 firmware/tsp_melfas/CORE.fw.gen.S
 firmware/tsp_melfas/PRIV.fw
