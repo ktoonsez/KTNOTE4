@@ -516,6 +516,7 @@ static ssize_t store_##file_name					\
 
 static void __ref set_cpu_min_max_work_fn(struct work_struct *work)
 {
+	struct cpufreq_policy *policyorig;
 	mutex_lock(&core_control_mutex);
 	if (work_speed_min > 0 || work_speed_max > 0)
 	{
@@ -536,8 +537,8 @@ static void __ref set_cpu_min_max_work_fn(struct work_struct *work)
 			pr_alert("SET EXTRA CORES INIT-3\n");
 			if (cpu_online(cpu))
 			{
+				policyorig = cpufreq_cpu_get(cpu);
 				pr_alert("SET EXTRA CORES INIT-4\n");
-				struct cpufreq_policy *policyorig = cpufreq_cpu_get(cpu);
 				if (policyorig)
 				{
 					pr_alert("SET EXTRA CORES INIT-5\n");
