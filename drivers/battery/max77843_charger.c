@@ -1206,6 +1206,7 @@ static int max77843_chg_set_property(struct power_supply *psy,
 			  enum power_supply_property psp,
 			  const union power_supply_propval *val)
 {
+	int current_now;
 	struct max77843_charger_data *charger =
 		container_of(psy, struct max77843_charger_data, psy_chg);
 	union power_supply_propval value;
@@ -1269,7 +1270,7 @@ static int max77843_chg_set_property(struct power_supply *psy,
 				goto got_override;
 		
 			/* decrease the charging current according to siop level */
-			int current_now =
+			current_now =
 				charger->charging_current * val->intval / 100;
 			set_charging_current_max =
 				charger->charging_current_max;
