@@ -52,7 +52,7 @@ rm arch/arm/boot/dts/*.reverse.dts
 
 echo "Make the kernel"
 #make VARIANT_DEFCONFIG=jf_$CARRIER"_defconfig" SELINUX_DEFCONFIG=jfselinux_defconfig SELINUX_LOG_DEFCONFIG=jfselinux_log_defconfig KT_jf_defconfig
-make apq8084_sec_defconfig VARIANT_DEFCONFIG=apq8084_sec_trlte_ktoonsez_defconfig SELINUX_DEFCONFIG=selinux_defconfig
+make apq8084_sec_defconfig VARIANT_DEFCONFIG=apq8084_sec_trlte_ktoonsez_defconfig SELINUX_DEFCONFIG=selinux_defconfig SELINUX_LOG_DEFCONFIG=selinux_log_defconfig TIMA_DEFCONFIG=tima_defconfig DMVERITY_DEFCONFIG=dmverity_defconfig
 
 echo "Modding .config file - "$KTVER
 sed -i 's,CONFIG_LOCALVERSION="-KT-NOTE4",CONFIG_LOCALVERSION="'$KTVER'",' .config
@@ -81,7 +81,7 @@ if [ -e $KERNELDIR/arch/arm/boot/zImage ]; then
 	./mkbootfs $INITRAMFS_DEST | gzip > $PACKAGEDIR/ramdisk.gz
 	tools/dtbTool -o arch/arm/boot/dt.img -s 4096 -p scripts/dtc/ arch/arm/boot/dts/
 	chmod a+r arch/arm/boot/dt.img
-	tools/mkbootimg --cmdline 'console=null androidboot.hardware=qcom user_debug=23 msm_rtb.filter=0x3b7 dwc3_msm.cpu_to_affin=1' --kernel $PACKAGEDIR/zImage --ramdisk $PACKAGEDIR/ramdisk.gz --base 0x00000000 --pagesize 4096 --ramdisk_offset 0x02000000 --tags_offset 0x01E00000 --dt arch/arm/boot/dt.img --output $PACKAGEDIR/boot.img 
+	tools/mkbootimg --cmdline 'console=ttyHSL0,115200,n8 androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x37 ehci-hcd.park=3' --kernel $PACKAGEDIR/zImage --ramdisk $PACKAGEDIR/ramdisk.gz --base 0x00000000 --pagesize 4096 --ramdisk_offset 0x02000000 --tags_offset 0x01E00000 --dt arch/arm/boot/dt.img --output $PACKAGEDIR/boot.img 
 	cd $PACKAGEDIR
 	cp -R ../META-INF .
 
