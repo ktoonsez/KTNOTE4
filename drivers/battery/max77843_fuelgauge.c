@@ -8,9 +8,13 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ *
+ * This script file Also contains the Extended Battery Modification
+ * Created by TheLoneWolf20
  */
 
-//#define DEBUG
+#define DEBUG
 
 #include <linux/mfd/max77843.h>
 #include <linux/mfd/max77843-private.h>
@@ -185,9 +189,9 @@ static int max77843_fg_read_vcell(struct max77843_fuelgauge_data *fuelgauge)
 	temp2 = temp / 1000000;
 	vcell += (temp2 << 4);
 
-	//if (!(fuelgauge->info.pr_cnt % PRINT_COUNT))
-	//	pr_info("%s: VCELL(%d), data(0x%04x)\n",
-	//		__func__, vcell, (data[1]<<8) | data[0]);
+	if (!(fuelgauge->info.pr_cnt % PRINT_COUNT))
+		pr_info("%s: VCELL(%d), data(0x%04x)\n",
+			__func__, vcell, (data[1]<<8) | data[0]);
 
 	return vcell;
 }
@@ -357,7 +361,7 @@ static int max77843_fg_read_soc(struct max77843_fuelgauge_data *fuelgauge)
 		return -1;
 	}
 
-	soc = ((data[1] * 100) + (data[0] * 100 / 256)) / 10;
+	soc = max77843_fg_read_vfsoc(fuelgauge);
 	vf_soc = max77843_fg_read_vfsoc(fuelgauge);
 
 #ifdef BATTERY_LOG_MESSAGE
@@ -488,7 +492,7 @@ static int max77843_fg_read_current(struct max77843_fuelgauge_data *fuelgauge, i
 
 	temp = ((data1[1]<<8) | data1[0]) & 0xFFFF;
 	/* Debug log for abnormal current case */
-	//pr_info("%s: CURRENT_REG(0x%04x)\n", __func__, temp);
+	pr_info("%s: CURRENT_REG(0x%04x)\n", __func__, temp);
 	if (temp & (0x1 << 15)) {
 		sign = NEGATIVE;
 		temp = (~temp & 0xFFFF) + 1;
@@ -1984,4 +1988,4 @@ module_exit(max77843_fuelgauge_exit);
 
 MODULE_DESCRIPTION("Samsung MAX77843 Fuel Gauge Driver");
 MODULE_AUTHOR("Samsung Electronics");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL"); 
